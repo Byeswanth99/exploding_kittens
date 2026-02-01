@@ -273,6 +273,13 @@ export class GameRoom {
       return { success: false, error: 'Not your turn' };
     }
 
+    // Block actions if player is waiting for favor to be resolved
+    if (this.gameState.pendingAction?.type === 'favor' &&
+        this.gameState.pendingAction.status === 'waiting' &&
+        this.gameState.pendingAction.initiatorId === playerId) {
+      return { success: false, error: 'You must wait for the player to give you a card before taking any other actions' };
+    }
+
     // Handle multiple cards (cat card combinations)
     if (Array.isArray(cardId)) {
       return this.playCatCombo(playerId, cardId, data);
@@ -409,6 +416,13 @@ export class GameRoom {
 
     const player = this.gameState.players.find(p => p.id === playerId);
     if (!player) return { card: null, exploded: false };
+
+    // Block drawing if player is waiting for favor to be resolved
+    if (this.gameState.pendingAction?.type === 'favor' &&
+        this.gameState.pendingAction.status === 'waiting' &&
+        this.gameState.pendingAction.initiatorId === playerId) {
+      return { card: null, exploded: false };
+    }
 
     // Draw from bottom of deck (first element)
     const card = this.gameState.deck.shift()!;

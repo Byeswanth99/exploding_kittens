@@ -150,37 +150,40 @@ export function setupInitialGame(
     explodingKittenCount
   );
 
-  // Step 2: Give each player 1 Defuse card (always)
+  // Step 2: Separate defuses for players and additional defuses for deck
   const defusesForPlayers = defuses.slice(0, playerCount);
   const additionalDefuses = defuses.slice(playerCount);
 
-  // Step 3: Add exploding kittens and additional defuses to deck BEFORE shuffling
-  let fullDeck = [...deck, ...explodingKittens, ...additionalDefuses];
+  // Step 3: Shuffle the deck WITHOUT exploding kittens
+  let shuffledDeck = shuffleArray([...deck, ...additionalDefuses]);
 
-  // Step 4: Shuffle the complete deck (with kittens and additional defuses)
-  fullDeck = shuffleArray(fullDeck);
-
-  // Step 5: Deal 7 cards to each player
+  // Step 4: Deal 7 cards to each player (from deck without kittens)
   const playerHands: Card[][] = Array(playerCount)
     .fill(null)
     .map(() => []);
 
-  let deckCopy = [...fullDeck];
+  let remainingDeck = [...shuffledDeck];
   for (let i = 0; i < 7; i++) {
     for (let p = 0; p < playerCount; p++) {
-      if (deckCopy.length > 0) {
-        playerHands[p].push(deckCopy.pop()!);
+      if (remainingDeck.length > 0) {
+        playerHands[p].push(remainingDeck.pop()!);
       }
     }
   }
 
-  // Step 6: Give each player 1 Defuse card (always)
+  // Step 5: Give each player 1 Defuse card (always)
   for (let p = 0; p < playerCount; p++) {
     playerHands[p].push(defusesForPlayers[p]);
   }
 
+  // Step 6: Add exploding kittens to the remaining deck AFTER dealing
+  remainingDeck.push(...explodingKittens);
+
+  // Step 7: Shuffle the final deck (with kittens)
+  remainingDeck = shuffleArray(remainingDeck);
+
   return {
-    deck: deckCopy,
+    deck: remainingDeck,
     playerHands,
     deckConfiguration,
   };

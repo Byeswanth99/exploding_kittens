@@ -41,6 +41,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
     ? gameState.pendingAction
     : null;
   const isFavorTarget = pendingFavor?.targetPlayerId === yourPlayerId;
+  const isFavorRequester = pendingFavor?.initiatorId === yourPlayerId;
   const isCatComboRequester = pendingCatCombo?.initiatorId === yourPlayerId;
   const favorRequester = pendingFavor
     ? gameState.players.find(p => p.id === pendingFavor.initiatorId)
@@ -66,6 +67,12 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
 
   const handlePlayCard = (cardId: string, cardType: string) => {
     if (!isYourTurn || isEliminated) return;
+
+    // Block actions if waiting for favor to be resolved
+    if (isFavorRequester) {
+      alert('You must wait for the player to give you a card before taking any other actions.');
+      return;
+    }
 
     // Handle special cards
     if (cardType === 'skip') {
@@ -175,6 +182,12 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
 
   const handleDrawCard = () => {
     if (!isYourTurn || isEliminated) return;
+
+    // Block drawing if waiting for favor to be resolved
+    if (isFavorRequester) {
+      alert('You must wait for the player to give you a card before drawing.');
+      return;
+    }
 
     socket.emit('drawCard', (response: any) => {
       if (response.success) {
@@ -437,9 +450,9 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
             <div className="relative">
               <button
                 onClick={handleDrawCard}
-                disabled={!isYourTurn || isEliminated || canSkipDraw}
+                disabled={!isYourTurn || isEliminated || canSkipDraw || isFavorRequester}
                 className={`w-20 h-28 md:w-24 md:h-36 rounded-lg shadow-lg transition-all ${
-                  isYourTurn && !isEliminated && !canSkipDraw
+                  isYourTurn && !isEliminated && !canSkipDraw && !isFavorRequester
                     ? 'bg-gradient-to-br from-red-500 to-pink-500 hover:scale-105 cursor-pointer'
                     : 'bg-gray-400 cursor-not-allowed'
                 }`}
@@ -612,12 +625,12 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
         {/* Bottom section - Your Hand */}
         <div className="flex-shrink-0 overflow-hidden pb-36 md:pb-0">
           {currentPlayer && !isEliminated && (
-            <PlayerHand
-              hand={currentPlayer.hand}
-              onPlayCard={handlePlayCard}
-              onPlayCatCombo={handlePlayCatCombo}
-              canPlay={isYourTurn}
-            />
+          <PlayerHand
+            hand={currentPlayer.hand}
+            onPlayCard={handlePlayCard}
+            onPlayCatCombo={handlePlayCatCombo}
+            canPlay={isYourTurn && !isFavorRequester}
+          />
           )}
         </div>
 
@@ -705,7 +718,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
       {/* Cat Combo Card Selection Modal - Requester picks from target's face-down cards */}
       {showCatComboSelection && catComboTargetCards.length > 0 && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full fade-in">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto fade-in">
             <h2 className="text-2xl md:text-3xl font-bold text-center mb-2">
               🐱 Cat Combo!
             </h2>
@@ -713,8 +726,8 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
               Choose a card to take from {catComboTargetName}'s hand (face down)
             </p>
 
-            <div className="overflow-x-auto pb-2 mb-4">
-              <div className="flex space-x-2 md:space-x-3 min-w-max justify-center">
+            <div className="overflow-y-auto pb-2 mb-4 max-h-[60vh]">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4 justify-items-center">
                 {catComboTargetCards.map((card) => (
                   <div key={card.id} className="group relative">
                     <CardComponent
