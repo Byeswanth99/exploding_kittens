@@ -62,7 +62,7 @@ function generateBaseCards(): Card[] {
   cards.push(...Array(4).fill(null).map(() => createCard('shuffle')));
   cards.push(...Array(5).fill(null).map(() => createCard('see-the-future')));
   cards.push(...Array(5).fill(null).map(() => createCard('nope')));
-  
+
   // Expansion cards
   cards.push(...Array(3).fill(null).map(() => createCard('alter-the-future')));
 
@@ -91,7 +91,11 @@ export function shuffleArray<T>(array: T[]): T[] {
  * Generate a complete deck for the given player count
  * This is used during initial game setup
  */
-export function generateDeckForPlayers(playerCount: number): {
+export function generateDeckForPlayers(
+  playerCount: number,
+  defuseCount: number = 0,
+  explodingKittenCount: number = playerCount - 1
+): {
   deck: Card[];
   defuses: Card[];
   explodingKittens: Card[];
@@ -106,11 +110,15 @@ export function generateDeckForPlayers(playerCount: number): {
   // Add feral cats based on player count
   deck.push(...Array(feralCatCount).fill(null).map(() => createCard('feral-cat')));
 
-  // Generate Defuse cards (6 total)
-  const defuses = Array(6).fill(null).map(() => createCard('defuse'));
+  // Generate Defuse cards:
+  // - 1 defuse per player (always given to players)
+  // - Additional defuses (defuseCount) go into the deck
+  const defusesForPlayers = Array(playerCount).fill(null).map(() => createCard('defuse'));
+  const additionalDefuses = Array(defuseCount).fill(null).map(() => createCard('defuse'));
+  const defuses = [...defusesForPlayers, ...additionalDefuses];
 
-  // Generate Exploding Kittens (playerCount - 1)
-  const explodingKittens = Array(playerCount - 1)
+  // Generate Exploding Kittens (configurable, default playerCount - 1)
+  const explodingKittens = Array(Math.max(1, explodingKittenCount))
     .fill(null)
     .map(() => createCard('exploding-kitten'));
 
@@ -126,20 +134,38 @@ export function generateDeckForPlayers(playerCount: number): {
  * Setup initial game deck and deal cards to players
  * Returns: { deck, playerHands, defusesForPlayers }
  */
-export function setupInitialGame(playerCount: number): {
+export function setupInitialGame(
+  playerCount: number,
+  defuseCount: number = 0,
+  explodingKittenCount: number = playerCount - 1
+): {
   deck: Card[];
   playerHands: Card[][];
   deckConfiguration: 'small' | 'medium' | 'full';
 } {
   // Step 1: Generate deck
-  const { deck, defuses, explodingKittens, deckConfiguration } = generateDeckForPlayers(playerCount);
+  const { deck, defuses, explodingKittens, deckConfiguration } = generateDeckForPlayers(
+    playerCount,
+    defuseCount,
+    explodingKittenCount
+  );
 
-  // Step 2: Deal 7 cards to each player
+  // Step 2: Give each player 1 Defuse card (always)
+  const defusesForPlayers = defuses.slice(0, playerCount);
+  const additionalDefuses = defuses.slice(playerCount);
+
+  // Step 3: Add exploding kittens and additional defuses to deck BEFORE shuffling
+  let fullDeck = [...deck, ...explodingKittens, ...additionalDefuses];
+
+  // Step 4: Shuffle the complete deck (with kittens and additional defuses)
+  fullDeck = shuffleArray(fullDeck);
+
+  // Step 5: Deal 7 cards to each player
   const playerHands: Card[][] = Array(playerCount)
     .fill(null)
     .map(() => []);
 
-  let deckCopy = [...deck];
+  let deckCopy = [...fullDeck];
   for (let i = 0; i < 7; i++) {
     for (let p = 0; p < playerCount; p++) {
       if (deckCopy.length > 0) {
@@ -148,20 +174,10 @@ export function setupInitialGame(playerCount: number): {
     }
   }
 
-  // Step 3: Give each player 1 Defuse card
+  // Step 6: Give each player 1 Defuse card (always)
   for (let p = 0; p < playerCount; p++) {
-    playerHands[p].push(defuses[p]);
+    playerHands[p].push(defusesForPlayers[p]);
   }
-
-  // Step 4: Insert remaining Defuses back into deck
-  const remainingDefuses = defuses.slice(playerCount);
-  deckCopy.push(...remainingDefuses);
-
-  // Step 5: Insert Exploding Kittens
-  deckCopy.push(...explodingKittens);
-
-  // Step 6: Shuffle the final deck
-  deckCopy = shuffleArray(deckCopy);
 
   return {
     deck: deckCopy,

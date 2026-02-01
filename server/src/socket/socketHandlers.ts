@@ -10,6 +10,19 @@ import {
 } from '../types/game';
 
 export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
+  /**
+   * Helper function to check for game end and emit if needed
+   */
+  const checkAndEmitGameEnd = (room: any, roomCode: string) => {
+    const winner = room.checkGameEnd();
+    if (winner) {
+      io.to(roomCode).emit('gameEnd', {
+        winnerId: winner.id,
+        winnerName: winner.name
+      });
+    }
+  };
+
   io.on('connection', (socket: Socket) => {
     console.log(`Player connected: ${socket.id}`);
 
@@ -20,17 +33,17 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
       try {
         const { playerName } = payload;
         const room = roomManager.createRoom(socket.id, playerName);
-        
+
         socket.join(room.getGameState().roomCode);
-        
+
         const response: GameStatePayload = {
           gameState: room.getGameState(),
           yourPlayerId: socket.id,
         };
-        
+
         // Emit game state to the socket so App component receives it
         socket.emit('gameState', response);
-        
+
         callback({ success: true, data: response });
       } catch (error) {
         console.error('Error creating game:', error);
@@ -45,29 +58,29 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
       try {
         const { roomCode, playerName } = payload;
         const room = roomManager.getRoom(roomCode);
-        
+
         if (!room) {
           callback({ success: false, error: 'Room not found' });
           return;
         }
 
         const player = room.addPlayer(socket.id, playerName);
-        
+
         if (!player) {
           callback({ success: false, error: 'Cannot join game' });
           return;
         }
 
         socket.join(roomCode);
-        
+
         const response: GameStatePayload = {
           gameState: room.getGameState(),
           yourPlayerId: socket.id,
         };
-        
+
         // Notify all players in room (they'll use their own socket.id)
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
+
         callback({ success: true, data: response });
       } catch (error) {
         console.error('Error joining game:', error);
@@ -78,28 +91,32 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
     /**
      * Start the game
      */
-    socket.on('startGame', (roomCode: string, callback) => {
+    socket.on('startGame', (payload: { roomCode: string; defuseCount?: number; explodingKittenCount?: number }, callback) => {
       try {
+        const { roomCode, defuseCount = 0, explodingKittenCount } = typeof payload === 'string'
+          ? { roomCode: payload, defuseCount: 0, explodingKittenCount: undefined }
+          : payload;
+
         const room = roomManager.getRoom(roomCode);
-        
+
         if (!room) {
           callback({ success: false, error: 'Room not found' });
           return;
         }
 
         const gameState = room.getGameState();
-        
+
         // Check if caller is host
         if (gameState.hostId !== socket.id) {
           callback({ success: false, error: 'Only host can start game' });
           return;
         }
 
-        room.startGame();
-        
+        room.startGame(defuseCount, explodingKittenCount);
+
         // Notify all players (they'll use their own socket.id)
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
+
         callback({ success: true });
       } catch (error) {
         console.error('Error starting game:', error);
@@ -108,16 +125,16 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
     });
 
     /**
-     * Play a card
+     * Play a card or cat card combination
      */
     socket.on('playCard', (payload: PlayCardPayload, callback) => {
       try {
         const { cardId, targetPlayerId, data } = payload;
-        
+
         // Find which room the player is in
         let room = null;
         let roomCode = '';
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -131,8 +148,10 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
           return;
         }
 
-        const result = room.playCard(socket.id, cardId, { targetPlayerId, ...data });
-        
+        // Support both single card and array of cards (for cat combos)
+        const cardsToPlay = Array.isArray(cardId) ? cardId : cardId;
+        const result = room.playCard(socket.id, cardsToPlay, { targetPlayerId, ...data });
+
         if (!result.success) {
           callback({ success: false, error: result.error });
           return;
@@ -140,7 +159,10 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         // Notify all players (they'll use their own socket.id)
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
+
+        // Check for game end after playing card
+        checkAndEmitGameEnd(room, roomCode);
+
         callback({ success: true, requiresAction: result.requiresAction });
       } catch (error) {
         console.error('Error playing card:', error);
@@ -156,7 +178,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         // Find which room the player is in
         let room = null;
         let roomCode = '';
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -171,7 +193,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         }
 
         const success = room.giveFavorCard(socket.id, payload.requesterId, payload.cardId);
-        
+
         if (!success) {
           callback({ success: false, error: 'Failed to give card' });
           return;
@@ -179,11 +201,90 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         // Notify all players
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
+
+        // Check for game end (in case this was the last action and someone won)
+        checkAndEmitGameEnd(room, roomCode);
+
         callback({ success: true });
       } catch (error) {
         console.error('Error giving favor card:', error);
         callback({ success: false, error: 'Failed to give card' });
+      }
+    });
+
+    /**
+     * Get target player's cards for Cat Combo (face down)
+     */
+    socket.on('getCatComboTargetCards', (callback) => {
+      try {
+        // Find which room the player is in
+        let room = null;
+
+        for (const r of roomManager.getAllRooms()) {
+          if (r.getPlayers().find(p => p.id === socket.id)) {
+            room = r;
+            break;
+          }
+        }
+
+        if (!room) {
+          callback({ success: false, error: 'Not in a game' });
+          return;
+        }
+
+        const result = room.getTargetPlayerCardsForCombo(socket.id);
+
+        if (!result) {
+          callback({ success: false, error: 'No pending cat combo action' });
+          return;
+        }
+
+        callback({ success: true, cards: result.cards, targetPlayerName: result.targetPlayerName });
+      } catch (error) {
+        console.error('Error getting cat combo target cards:', error);
+        callback({ success: false, error: 'Failed to get target cards' });
+      }
+    });
+
+    /**
+     * Take card for Cat Combo (2 of a kind) - requester chooses which card to take
+     */
+    socket.on('takeCatComboCard', (payload: { cardId: string }, callback) => {
+      try {
+        // Find which room the player is in
+        let room = null;
+        let roomCode = '';
+
+        for (const r of roomManager.getAllRooms()) {
+          if (r.getPlayers().find(p => p.id === socket.id)) {
+            room = r;
+            roomCode = r.getGameState().roomCode;
+            break;
+          }
+        }
+
+        if (!room) {
+          callback({ success: false, error: 'Not in a game' });
+          return;
+        }
+
+        const success = room.takeCatComboCard(socket.id, payload.cardId);
+
+        if (!success) {
+          callback({ success: false, error: 'Failed to take card' });
+          return;
+        }
+
+        // Notify all players
+        io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
+
+        // Check for game end
+        checkAndEmitGameEnd(room, roomCode);
+
+        callback({ success: true });
+      } catch (error) {
+        console.error('Error taking cat combo card:', error);
+        callback({ success: false, error: 'Failed to take card' });
       }
     });
 
@@ -195,7 +296,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         // Find which room the player is in
         let room = null;
         let roomCode = '';
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -210,38 +311,38 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         }
 
         const result = room.drawCard(socket.id);
-        
+
         if (result.exploded) {
-          // Check if game ended
-          const winner = room.checkGameEnd();
-          if (winner) {
-            io.to(roomCode).emit('gameEnd', { 
-              winnerId: winner.id, 
-              winnerName: winner.name 
-            });
-          }
+          // Check if game ended after player exploded
+          checkAndEmitGameEnd(room, roomCode);
         }
 
         // If drew Exploding Kitten but didn't explode, need to defuse
         if (result.card?.type === 'exploding-kitten' && !result.exploded) {
-          callback({ 
-            success: true, 
+          // Don't end turn yet - player must defuse first
+          // Notify all players of the state
+          io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
+          callback({
+            success: true,
             needsDefuse: true,
             card: result.card
           });
           return;
         }
 
-        // End turn after drawing
-        if (!result.exploded && result.card) {
+        // End turn after drawing (only if not exploded and not needing defuse)
+        if (!result.exploded && result.card && result.card.type !== 'exploding-kitten') {
           room.endTurn();
         }
 
         // Notify all players (they'll use their own socket.id)
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
-        callback({ 
-          success: true, 
+
+        // Check for game end after state update (in case last player was eliminated)
+        checkAndEmitGameEnd(room, roomCode);
+
+        callback({
+          success: true,
           card: result.card,
           exploded: result.exploded
         });
@@ -257,11 +358,11 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
     socket.on('defuseKitten', (payload: DefuseKittenPayload, callback) => {
       try {
         const { insertPosition } = payload;
-        
+
         // Find which room the player is in
         let room = null;
         let roomCode = '';
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -276,7 +377,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         }
 
         const success = room.defuseKitten(socket.id, insertPosition);
-        
+
         if (!success) {
           callback({ success: false, error: 'Failed to defuse' });
           return;
@@ -287,7 +388,10 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         // Notify all players (they'll use their own socket.id)
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
+
+        // Check for game end after defusing
+        checkAndEmitGameEnd(room, roomCode);
+
         callback({ success: true });
       } catch (error) {
         console.error('Error defusing kitten:', error);
@@ -302,7 +406,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
       try {
         // Find which room the player is in
         let room = null;
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -316,7 +420,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         }
 
         const topCards = room.peekDeck(3);
-        
+
         callback({ success: true, cards: topCards });
       } catch (error) {
         console.error('Error seeing future:', error);
@@ -332,7 +436,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         // Find which room the player is in
         let room = null;
         let roomCode = '';
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -347,7 +451,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         }
 
         room.rearrangeDeck(rearrangedCards);
-        
+
         callback({ success: true });
       } catch (error) {
         console.error('Error altering future:', error);
@@ -363,7 +467,7 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         // Find which room the player is in
         let room = null;
         let roomCode = '';
-        
+
         for (const r of roomManager.getAllRooms()) {
           if (r.getPlayers().find(p => p.id === socket.id)) {
             room = r;
@@ -378,10 +482,10 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
         }
 
         room.shuffleDeck();
-        
+
         // Notify all players (they'll use their own socket.id)
         io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-        
+
         callback({ success: true });
       } catch (error) {
         console.error('Error shuffling deck:', error);
@@ -394,29 +498,44 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
      */
     socket.on('disconnect', () => {
       console.log(`Player disconnected: ${socket.id}`);
-      
-      // Find and update player connection status
+
+      // Find and handle disconnected player
       for (const room of roomManager.getAllRooms()) {
         const player = room.getPlayers().find(p => p.id === socket.id);
         if (player) {
-          player.isConnected = false;
           const roomCode = room.getGameState().roomCode;
-          
-          // Notify other players (they'll use their own socket.id)
-          io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
-          
-          // If in lobby, remove player after 30 seconds
-          if (room.getGameState().gamePhase === 'lobby') {
+          const gamePhase = room.getGameState().gamePhase;
+          const wasCurrentTurn = room.getGameState().currentTurnPlayerId === socket.id;
+
+          player.isConnected = false;
+
+          // If game is in progress, eliminate the player
+          if (gamePhase === 'playing') {
+            const eliminated = room.eliminateDisconnectedPlayer(socket.id);
+
+            if (eliminated) {
+              // Notify all players
+              io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
+
+              // Check for game end (if only one player remains)
+              checkAndEmitGameEnd(room, roomCode);
+            }
+          } else if (gamePhase === 'lobby') {
+            // If in lobby, remove player after 30 seconds
             setTimeout(() => {
-              if (!player.isConnected) {
+              const stillInRoom = room.getPlayers().find(p => p.id === socket.id);
+              if (stillInRoom && !stillInRoom.isConnected) {
                 room.removePlayer(socket.id);
                 io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
               }
             }, 30000);
+          } else {
+            // Game ended or other phase - just update connection status
+            io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
           }
         }
       }
-      
+
       // Cleanup empty rooms
       roomManager.cleanupEmptyRooms();
     });

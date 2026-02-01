@@ -11,6 +11,7 @@ interface AlterFutureModalProps {
 export default function AlterFutureModal({ cards, onConfirm, onClose }: AlterFutureModalProps) {
   const [rearrangedCards, setRearrangedCards] = useState<Card[]>([...cards]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const handleCardClick = (index: number) => {
     if (selectedIndex === null) {
@@ -23,6 +24,36 @@ export default function AlterFutureModal({ cards, onConfirm, onClose }: AlterFut
       setRearrangedCards(newCards);
       setSelectedIndex(null);
     }
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', index.toString());
+    setDraggedIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null);
+      return;
+    }
+
+    const newCards = [...rearrangedCards];
+    const draggedCard = newCards[draggedIndex];
+    newCards.splice(draggedIndex, 1);
+    newCards.splice(dropIndex, 0, draggedCard);
+    setRearrangedCards(newCards);
+    setDraggedIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
   };
 
   const handleConfirm = () => {
@@ -43,10 +74,20 @@ export default function AlterFutureModal({ cards, onConfirm, onClose }: AlterFut
         <div className="mb-6">
           <div className="flex justify-center space-x-3 md:space-x-4 mb-4">
             {rearrangedCards.map((card, index) => (
-              <div key={card.id} className="text-center">
+              <div
+                key={card.id}
+                className="text-center"
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
+              >
                 <div className={`
                   p-1 rounded-lg transition-all
                   ${selectedIndex === index ? 'bg-yellow-200 ring-4 ring-yellow-400' : ''}
+                  ${draggedIndex === index ? 'opacity-50 scale-95' : ''}
+                  cursor-move
                 `}>
                   <CardComponent
                     card={card}
@@ -64,6 +105,9 @@ export default function AlterFutureModal({ cards, onConfirm, onClose }: AlterFut
           <div className="bg-blue-50 rounded-lg p-3 text-center">
             <p className="text-xs text-gray-600">
               📝 Position 1 will be drawn first, Position 3 last
+            </p>
+            <p className="text-xs text-gray-600 mt-1">
+              💡 Drag and drop cards to rearrange, or tap two cards to swap
             </p>
           </div>
         </div>

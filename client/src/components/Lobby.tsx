@@ -1,16 +1,50 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 
 interface LobbyProps {
   socket: Socket;
+  initialRoomCode?: string | null;
 }
 
-export default function Lobby({ socket }: LobbyProps) {
+// Generate a random username
+const generateRandomUsername = (): string => {
+  const adjectives = [
+    'Brave', 'Clever', 'Swift', 'Bold', 'Wise', 'Fierce', 'Noble', 'Quick',
+    'Sharp', 'Bright', 'Wild', 'Calm', 'Bold', 'Cool', 'Epic', 'Funny',
+    'Happy', 'Jolly', 'Lucky', 'Mighty', 'Proud', 'Sneaky', 'Tough', 'Witty'
+  ];
+
+  const nouns = [
+    'Tiger', 'Eagle', 'Wolf', 'Lion', 'Fox', 'Bear', 'Hawk', 'Panther',
+    'Falcon', 'Shark', 'Dragon', 'Phoenix', 'Raven', 'Jaguar', 'Cobra', 'Leopard',
+    'Kitten', 'Puppy', 'Bunny', 'Panda', 'Koala', 'Penguin', 'Dolphin', 'Owl'
+  ];
+
+  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const number = Math.floor(Math.random() * 999) + 1;
+
+  return `${adjective}${noun}${number}`;
+};
+
+export default function Lobby({ socket, initialRoomCode }: LobbyProps) {
   const [playerName, setPlayerName] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
+
+  // Generate random username on component mount
+  useEffect(() => {
+    setPlayerName(generateRandomUsername());
+  }, []);
+
+  // Set room code from URL if provided
+  useEffect(() => {
+    if (initialRoomCode) {
+      setRoomCode(initialRoomCode);
+    }
+  }, [initialRoomCode]);
 
   const handleCreateGame = () => {
     if (!playerName.trim()) {
@@ -44,9 +78,9 @@ export default function Lobby({ socket }: LobbyProps) {
     setError('');
     setIsJoining(true);
 
-    socket.emit('joinGame', { 
-      roomCode: roomCode.trim().toUpperCase(), 
-      playerName: playerName.trim() 
+    socket.emit('joinGame', {
+      roomCode: roomCode.trim().toUpperCase(),
+      playerName: playerName.trim()
     }, (response: any) => {
       setIsJoining(false);
       if (!response.success) {
@@ -55,6 +89,17 @@ export default function Lobby({ socket }: LobbyProps) {
       // Success - App component will receive gameState via socket event
     });
   };
+
+  // Auto-join when both name and room code from URL are ready
+  useEffect(() => {
+    if (initialRoomCode && playerName && roomCode === initialRoomCode && !isJoining && !isCreating && socket) {
+      const timer = setTimeout(() => {
+        handleJoinGame();
+      }, 1000); // Give socket time to be ready
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerName, roomCode, initialRoomCode, isJoining, isCreating, socket]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

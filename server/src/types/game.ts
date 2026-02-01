@@ -18,6 +18,7 @@ export interface Player {
   isHost: boolean;
   defuseCount: number; // Quick access for UI
   pendingTurns: number; // Number of turns this player needs to take (from Attack cards)
+  pendingExplodingKitten: Card | null; // Exploding kitten drawn but not yet defused/exploded
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'gameEnd';
@@ -74,7 +75,7 @@ export interface GameState {
 export interface GameLogEntry {
   id: string;
   timestamp: number;
-  type: 'card-played' | 'card-drawn' | 'player-exploded' | 'player-defused' | 'nope-played' | 'action-resolved' | 'turn-changed' | 'game-started' | 'player-joined' | 'player-left';
+  type: 'card-played' | 'card-drawn' | 'player-exploded' | 'player-defused' | 'nope-played' | 'action-resolved' | 'turn-changed' | 'game-started' | 'game-created' | 'player-joined' | 'player-left';
   playerId?: string;
   playerName?: string;
   cardType?: CardType;
@@ -98,9 +99,9 @@ export interface JoinGamePayload {
 }
 
 export interface PlayCardPayload {
-  cardId: string;
+  cardId: string | string[]; // Single card or array for cat combos
   targetPlayerId?: string;
-  data?: any; // Additional data for specific cards
+  data?: any; // Additional data for specific cards (requestedCardType for 3-kind, discardCardId for 5-diff)
 }
 
 export interface PlayCatComboPayload {

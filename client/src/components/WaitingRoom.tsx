@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 import { GameState } from '../types/game';
 
@@ -10,42 +11,80 @@ interface WaitingRoomProps {
 export default function WaitingRoom({ socket, gameState, yourPlayerId }: WaitingRoomProps) {
   const isHost = gameState.hostId === yourPlayerId;
   const canStart = gameState.players.length >= 2;
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [defuseCount, setDefuseCount] = useState<string>('0');
+  const defaultKittenCount = gameState.players.length - 1;
+  const [explodingKittenCount, setExplodingKittenCount] = useState<string>(defaultKittenCount.toString());
+
+  // Update exploding kitten count when player count changes
+  useEffect(() => {
+    setExplodingKittenCount((gameState.players.length - 1).toString());
+  }, [gameState.players.length]);
 
   const handleStartGame = () => {
     if (!isHost || !canStart) return;
-    socket.emit('startGame', gameState.roomCode, (response: any) => {
+
+    // Parse and validate the counts
+    const defuseCountNum = parseInt(defuseCount) || 0;
+    const kittenCountNum = parseInt(explodingKittenCount) || defaultKittenCount;
+
+    socket.emit('startGame', {
+      roomCode: gameState.roomCode,
+      defuseCount: Math.max(0, defuseCountNum),
+      explodingKittenCount: Math.max(1, kittenCountNum)
+    }, (response: any) => {
       if (!response.success) {
         alert(response.error || 'Failed to start game');
       }
     });
   };
 
-  const copyRoomCode = () => {
-    navigator.clipboard.writeText(gameState.roomCode);
-    // You could add a toast notification here
-    alert('Room code copied to clipboard!');
+  const getShareableLink = () => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    return `${baseUrl}?room=${gameState.roomCode}`;
+  };
+
+  const copyShareableLink = async () => {
+    try {
+      await navigator.clipboard.writeText(getShareableLink());
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (err) {
+      alert('Failed to copy link');
+    }
+  };
+
+  const copyRoomCode = async () => {
+    try {
+      await navigator.clipboard.writeText(gameState.roomCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch (err) {
+      alert('Failed to copy room code');
+    }
   };
 
   const getDeckInfo = () => {
     const config = gameState.deckConfiguration;
     const playerCount = gameState.players.length;
-    
+
     if (config === 'small') return `Small Deck (2-3 players)`;
     if (config === 'medium') return `Medium Deck (4-7 players)`;
     return `Full Deck (8-10 players)`;
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full fade-in">
+    <div className="min-h-screen flex items-start justify-center p-4 py-8">
+      <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full fade-in my-8">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary mb-4">
             💣 Game Lobby
           </h1>
-          
+
           {/* Room code */}
-          <div className="inline-flex items-center bg-gradient-to-r from-primary to-secondary text-white px-6 py-3 rounded-full mb-2">
+          <div className="inline-flex items-center bg-gradient-to-r from-primary to-secondary text-white px-6 py-3 rounded-full mb-4">
             <span className="text-sm mr-2">Room Code:</span>
             <span className="text-2xl font-bold tracking-wider">{gameState.roomCode}</span>
             <button
@@ -53,10 +92,37 @@ export default function WaitingRoom({ socket, gameState, yourPlayerId }: Waiting
               className="ml-3 hover:scale-110 transition-transform"
               title="Copy room code"
             >
-              📋
+              {codeCopied ? '✓' : '📋'}
             </button>
           </div>
-          
+
+          {/* Shareable link */}
+          <div className="mb-4">
+            <div className="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-semibold text-gray-700">Shareable Link:</span>
+                <button
+                  onClick={copyShareableLink}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    linkCopied
+                      ? 'bg-green-500 text-white'
+                      : 'bg-primary text-white hover:bg-primary/90'
+                  }`}
+                >
+                  {linkCopied ? '✓ Copied!' : '📤 Copy Link'}
+                </button>
+              </div>
+              <div className="bg-white rounded p-2 border border-gray-200">
+                <p className="text-xs text-gray-600 break-all font-mono">
+                  {getShareableLink()}
+                </p>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Share this link with friends - they'll join automatically!
+              </p>
+            </div>
+          </div>
+
           {/* Deck configuration */}
           <p className="text-gray-600 text-sm mt-2">
             {getDeckInfo()}
@@ -94,7 +160,7 @@ export default function WaitingRoom({ socket, gameState, yourPlayerId }: Waiting
                     )}
                   </div>
                 </div>
-                
+
                 {/* Connection status */}
                 <div className={`w-3 h-3 rounded-full ${
                   player.isConnected ? 'bg-green-500' : 'bg-red-500'
@@ -103,6 +169,61 @@ export default function WaitingRoom({ socket, gameState, yourPlayerId }: Waiting
             ))}
           </div>
         </div>
+
+        {/* Game Configuration (host only) */}
+        {isHost && (
+          <div className="mb-6 space-y-4">
+            {/* Defuse Count Input */}
+            <div>
+              <label className="block text-gray-700 text-sm font-bold mb-2">
+                Additional Defuse Cards in Deck (default: 0)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="20"
+                value={defuseCount}
+                onChange={(e) => setDefuseCount(e.target.value)}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (isNaN(val) || val < 0) {
+                    setDefuseCount('0');
+                  }
+                }}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-primary transition-colors"
+                placeholder="0"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Each player gets 1 defuse card by default. This number adds extra defuse cards to the deck.
+              </p>
+            </div>
+
+            {/* Exploding Kitten Count Input */}
+            <div>
+              <label className="block text-gray-700 text-sm font-bold mb-2">
+                Number of Exploding Kitten Cards (default: {defaultKittenCount})
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={explodingKittenCount}
+                onChange={(e) => setExplodingKittenCount(e.target.value)}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (isNaN(val) || val < 1) {
+                    setExplodingKittenCount(defaultKittenCount.toString());
+                  }
+                }}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-primary transition-colors"
+                placeholder={defaultKittenCount.toString()}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Number of exploding kitten cards in the deck. Default is (number of players - 1).
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Instructions */}
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 mb-6">

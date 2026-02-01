@@ -6,12 +6,14 @@ interface FavorGiveCardModalProps {
   hand: Card[];
   requesterName: string;
   onGive: (cardId: string) => void;
+  isCatCombo?: boolean;
 }
 
 export default function FavorGiveCardModal({
   hand,
   requesterName,
   onGive,
+  isCatCombo = false,
 }: FavorGiveCardModalProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
 
@@ -24,10 +26,12 @@ export default function FavorGiveCardModal({
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full fade-in">
         <h2 className="text-2xl md:text-3xl font-bold text-center mb-2">
-          Favor Requested
+          {isCatCombo ? '🐱 Cat Combo!' : '🤝 Favor Requested'}
         </h2>
         <p className="text-center text-gray-600 mb-6 text-sm md:text-base">
-          {requesterName} played Favor. Choose a card to give.
+          {isCatCombo
+            ? `${requesterName} played 2 of a kind. Choose a card to give.`
+            : `${requesterName} played Favor. Choose a card to give.`}
         </p>
 
         {hand.length === 0 ? (

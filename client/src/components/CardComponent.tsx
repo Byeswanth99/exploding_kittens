@@ -16,7 +16,11 @@ export default function CardComponent({
   selected = false,
   small = false
 }: CardComponentProps) {
-  const style = getCardStyle(card.type);
+  // Check if card is hidden (for cat combo - face down cards)
+  const isHidden = (card.type as any) === 'hidden' || card.type === undefined;
+  const style = isHidden
+    ? { gradient: 'from-gray-600 to-gray-800', emoji: '🂠', name: '?', description: 'Hidden card' }
+    : getCardStyle(card.type);
 
   const sizeClasses = small
     ? 'w-14 h-20 text-xs'

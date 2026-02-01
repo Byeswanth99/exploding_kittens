@@ -30,6 +30,7 @@ export class GameRoom {
       isHost: true,
       defuseCount: 0,
       pendingTurns: 0,
+      pendingExplodingKitten: null,
     };
 
     this.gameState = {
@@ -93,6 +94,7 @@ export class GameRoom {
       isHost: false,
       defuseCount: 0,
       pendingTurns: 0,
+      pendingExplodingKitten: null,
     };
 
     this.gameState.players.push(newPlayer);
@@ -119,20 +121,45 @@ export class GameRoom {
   }
 
   /**
+   * Eliminate a disconnected player during gameplay
+   */
+  eliminateDisconnectedPlayer(playerId: string): boolean {
+    const player = this.gameState.players.find(p => p.id === playerId);
+    if (!player || player.isEliminated) return false;
+
+    const wasCurrentTurn = this.gameState.currentTurnPlayerId === playerId;
+
+    player.isEliminated = true;
+    player.isConnected = false;
+
+    this.addLogEntry('player-left', playerId, player.name, undefined,
+      `${player.name} disconnected and was eliminated! 💥`);
+
+    // If it was their turn, move to next player
+    if (wasCurrentTurn) {
+      this.endTurn();
+    }
+
+    return true;
+  }
+
+  /**
    * Start the game
    */
-  startGame(): void {
+  startGame(defuseCount: number = 0, explodingKittenCount?: number): void {
     if (this.gameState.gamePhase !== 'lobby') return;
     if (this.gameState.players.length < 2) return;
 
     const playerCount = this.gameState.players.length;
-    const { deck, playerHands, deckConfiguration } = setupInitialGame(playerCount);
+    const kittenCount = explodingKittenCount !== undefined ? explodingKittenCount : playerCount - 1;
+    const { deck, playerHands, deckConfiguration } = setupInitialGame(playerCount, defuseCount, kittenCount);
 
     // Assign hands to players
     this.gameState.players.forEach((player, index) => {
       player.hand = playerHands[index];
       player.defuseCount = player.hand.filter(c => c.type === 'defuse').length;
       player.pendingTurns = 0;
+      player.pendingExplodingKitten = null;
     });
 
     this.gameState.deck = deck;
@@ -235,15 +262,20 @@ export class GameRoom {
   }
 
   /**
-   * Play a card
+   * Play a card or cat card combination
    */
-  playCard(playerId: string, cardId: string, data?: any): { success: boolean; error?: string; requiresAction?: string } {
+  playCard(playerId: string, cardId: string | string[], data?: any): { success: boolean; error?: string; requiresAction?: string } {
     const player = this.gameState.players.find(p => p.id === playerId);
     if (!player) return { success: false, error: 'Player not found' };
 
     // Check if it's player's turn
     if (this.gameState.currentTurnPlayerId !== playerId) {
       return { success: false, error: 'Not your turn' };
+    }
+
+    // Handle multiple cards (cat card combinations)
+    if (Array.isArray(cardId)) {
+      return this.playCatCombo(playerId, cardId, data);
     }
 
     const cardIndex = player.hand.findIndex(c => c.id === cardId);
@@ -368,7 +400,7 @@ export class GameRoom {
   }
 
   /**
-   * Draw a card from deck
+   * Draw a card from deck (from bottom)
    */
   drawCard(playerId: string): { card: Card | null; exploded: boolean } {
     if (this.gameState.deck.length === 0) {
@@ -378,16 +410,20 @@ export class GameRoom {
     const player = this.gameState.players.find(p => p.id === playerId);
     if (!player) return { card: null, exploded: false };
 
-    const card = this.gameState.deck.pop()!;
+    // Draw from bottom of deck (first element)
+    const card = this.gameState.deck.shift()!;
 
     // Check if it's an Exploding Kitten
     if (card.type === 'exploding-kitten') {
-      // Check if player has a Defuse
-      if (player.defuseCount > 0) {
-        // Player can defuse
+      // Check if player has a Defuse card in their hand
+      const hasDefuse = player.hand.some(c => c.type === 'defuse');
+
+      if (hasDefuse) {
+        // Store the exploding kitten temporarily - player must defuse
+        player.pendingExplodingKitten = card;
         return { card, exploded: false };
       } else {
-        // Player explodes
+        // Player explodes - no defuse card available
         player.isEliminated = true;
         this.gameState.discardPile.push(card);
         this.addLogEntry('player-exploded', playerId, player.name, undefined,
@@ -415,7 +451,10 @@ export class GameRoom {
     const player = this.gameState.players.find(p => p.id === playerId);
     if (!player) return false;
 
-    // Find and remove defuse card
+    // Check if player has a pending exploding kitten
+    if (!player.pendingExplodingKitten) return false;
+
+    // Find and remove defuse card from hand
     const defuseIndex = player.hand.findIndex(c => c.type === 'defuse');
     if (defuseIndex === -1) return false;
 
@@ -423,12 +462,11 @@ export class GameRoom {
     player.defuseCount--;
     this.gameState.discardPile.push(defuseCard);
 
-    // Create new Exploding Kitten and insert at position
-    const explodingKitten: Card = {
-      id: uuidv4(),
-      type: 'exploding-kitten',
-    };
+    // Use the actual exploding kitten that was drawn (not create a new one)
+    const explodingKitten = player.pendingExplodingKitten;
+    player.pendingExplodingKitten = null;
 
+    // Insert the exploding kitten back into the deck at the specified position
     const position = Math.max(0, Math.min(insertPosition, this.gameState.deck.length));
     this.gameState.deck.splice(position, 0, explodingKitten);
 
@@ -446,20 +484,22 @@ export class GameRoom {
   }
 
   /**
-   * Get top N cards from deck (for See the Future / Alter the Future)
+   * Get bottom N cards from deck (for See the Future / Alter the Future)
+   * Since we draw from bottom, these are the next cards to be drawn
    */
   peekDeck(count: number): Card[] {
-    return this.gameState.deck.slice(-count).reverse();
+    return this.gameState.deck.slice(0, count);
   }
 
   /**
-   * Rearrange top N cards (for Alter the Future)
+   * Rearrange bottom N cards (for Alter the Future)
+   * Since we draw from bottom, we rearrange the first N cards
    */
   rearrangeDeck(cards: Card[]): void {
-    // Remove top N cards
-    this.gameState.deck = this.gameState.deck.slice(0, -cards.length);
-    // Add rearranged cards back
-    this.gameState.deck.push(...cards.reverse());
+    // Remove bottom N cards (first N cards)
+    this.gameState.deck = this.gameState.deck.slice(cards.length);
+    // Add rearranged cards back at the bottom (beginning)
+    this.gameState.deck.unshift(...cards);
   }
 
   /**
@@ -495,6 +535,177 @@ export class GameRoom {
 
     this.addLogEntry('card-played', receiverId, receiver.name, undefined,
       `${receiver.name} received a card from ${giver.name} (Favor)`);
+
+    this.gameState.pendingAction = null;
+
+    return true;
+  }
+
+  /**
+   * Play cat card combination
+   */
+  private playCatCombo(playerId: string, cardIds: string[], data?: any): { success: boolean; error?: string; requiresAction?: string } {
+    const player = this.gameState.players.find(p => p.id === playerId);
+    if (!player) return { success: false, error: 'Player not found' };
+
+    // Validate all cards are in hand and are cat cards
+    const cards = cardIds.map(id => {
+      const card = player.hand.find(c => c.id === id);
+      if (!card) return null;
+      if (!isCatCard(card.type)) return null;
+      return card;
+    }).filter((c): c is Card => c !== null);
+
+    if (cards.length !== cardIds.length) {
+      return { success: false, error: 'Invalid cat cards' };
+    }
+
+    // Detect combination type
+    const comboType = this.detectCatCombo(cards);
+    if (!comboType) {
+      return { success: false, error: 'Invalid cat card combination' };
+    }
+
+    // Remove cards from hand
+    cardIds.forEach(id => {
+      const index = player.hand.findIndex(c => c.id === id);
+      if (index !== -1) {
+        const card = player.hand.splice(index, 1)[0];
+        this.gameState.discardPile.push(card);
+      }
+    });
+
+    // Handle combo effects
+    return this.handleCatCombo(playerId, comboType, cards, data);
+  }
+
+  /**
+   * Detect cat card combination type (only 2 of a kind allowed - must be same type)
+   */
+  private detectCatCombo(cards: Card[]): '2-kind' | null {
+    if (cards.length === 2) {
+      // Both cards must be the same type (feral cat can substitute for any)
+      const type1 = cards[0].type;
+      const type2 = cards[1].type;
+
+      // Same type, or one is feral cat (which can be any cat type)
+      if (type1 === type2 ||
+          type1 === 'feral-cat' ||
+          type2 === 'feral-cat') {
+        return '2-kind';
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Handle cat card combination effects (only 2 of a kind)
+   */
+  private handleCatCombo(playerId: string, comboType: '2-kind', cards: Card[], data?: any): { success: boolean; error?: string; requiresAction?: string } {
+    const player = this.gameState.players.find(p => p.id === playerId);
+    if (!player) return { success: false, error: 'Player not found' };
+
+    if (comboType === '2-kind') {
+      // Steal a random card from any player
+      if (!data?.targetPlayerId) {
+        return { success: false, error: 'Target player required for 2 of a kind' };
+      }
+
+      const targetPlayer = this.gameState.players.find(p => p.id === data.targetPlayerId);
+      if (!targetPlayer || targetPlayer.isEliminated) {
+        return { success: false, error: 'Invalid target player' };
+      }
+
+      if (targetPlayer.hand.length === 0) {
+        this.addLogEntry('action-resolved', playerId, player.name, undefined,
+          `${targetPlayer.name} has no cards to steal (2 of a kind)`);
+        return { success: true };
+      }
+
+      // Create pending action for stealing random card
+      this.gameState.pendingAction = {
+        actionId: uuidv4(),
+        type: 'cat-combo',
+        initiatorId: playerId,
+        targetPlayerId: targetPlayer.id,
+        cardIds: cards.map(c => c.id),
+        comboType: '2-kind',
+        nopeChain: [],
+        status: 'waiting',
+        createdAt: Date.now(),
+      };
+
+      this.addLogEntry('card-played', playerId, player.name, undefined,
+        `${player.name} played 2 of a kind (cat combo)`);
+
+      return { success: true, requiresAction: 'cat-combo-2kind' };
+    }
+
+    return { success: false, error: 'Invalid combo type' };
+  }
+
+  /**
+   * Get target player's cards for cat combo (face down - IDs visible but types hidden)
+   */
+  getTargetPlayerCardsForCombo(requesterId: string): { cards: Card[]; targetPlayerName: string } | null {
+    const pendingAction = this.gameState.pendingAction;
+    if (!pendingAction ||
+        pendingAction.type !== 'cat-combo' ||
+        pendingAction.status !== 'waiting' ||
+        pendingAction.initiatorId !== requesterId ||
+        pendingAction.comboType !== '2-kind') {
+      return null;
+    }
+
+    const targetPlayer = this.gameState.players.find(p => p.id === pendingAction.targetPlayerId);
+    if (!targetPlayer) return null;
+
+    // Return cards with IDs but types hidden (as 'hidden')
+    const hiddenCards: Card[] = targetPlayer.hand.map(card => ({
+      id: card.id,
+      type: 'hidden' as any, // Hide the type
+    }));
+
+    return {
+      cards: hiddenCards,
+      targetPlayerName: targetPlayer.name,
+    };
+  }
+
+  /**
+   * Take card for cat combo (2 of a kind) - requester chooses which card to take
+   */
+  takeCatComboCard(requesterId: string, cardId: string): boolean {
+    const requester = this.gameState.players.find(p => p.id === requesterId);
+    if (!requester) return false;
+
+    const pendingAction = this.gameState.pendingAction;
+    if (!pendingAction ||
+        pendingAction.type !== 'cat-combo' ||
+        pendingAction.status !== 'waiting' ||
+        pendingAction.initiatorId !== requesterId ||
+        pendingAction.comboType !== '2-kind') {
+      return false;
+    }
+
+    const targetPlayer = this.gameState.players.find(p => p.id === pendingAction.targetPlayerId);
+    if (!targetPlayer) return false;
+
+    const cardIndex = targetPlayer.hand.findIndex(c => c.id === cardId);
+    if (cardIndex === -1) return false;
+
+    const card = targetPlayer.hand.splice(cardIndex, 1)[0];
+    requester.hand.push(card);
+
+    // Update defuse counts
+    if (card.type === 'defuse') {
+      targetPlayer.defuseCount--;
+      requester.defuseCount++;
+    }
+
+    this.addLogEntry('card-played', requesterId, requester.name, undefined,
+      `${requester.name} stole a card from ${targetPlayer.name} (2 of a kind)`);
 
     this.gameState.pendingAction = null;
 

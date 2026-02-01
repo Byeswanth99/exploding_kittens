@@ -33,14 +33,15 @@ export default function GameLog({ gameLog, compact = false }: GameLogProps) {
   return (
     <div className={`
       bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-lg
-      ${compact ? 'p-2' : 'p-4 h-64 md:h-96'}
+      ${compact ? 'p-2' : 'p-4'}
+      ${compact ? '' : 'h-64 md:h-80 flex flex-col'}
     `}>
       {!compact && (
-        <h3 className="font-bold text-gray-800 mb-3 text-sm md:text-base">Game Log</h3>
+        <h3 className="font-bold text-gray-800 mb-3 text-sm md:text-base flex-shrink-0">Game Log</h3>
       )}
-      
+
       <div className={`
-        ${compact ? 'space-y-1' : 'space-y-2 overflow-y-auto h-full'}
+        ${compact ? 'space-y-1' : 'space-y-2 overflow-y-auto flex-1 min-h-0'}
       `}>
         {displayedLogs.length === 0 ? (
           <p className="text-gray-500 text-xs text-center">No events yet</p>

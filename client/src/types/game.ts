@@ -30,6 +30,7 @@ export interface Player {
   isHost: boolean;
   defuseCount: number;
   pendingTurns: number;
+  pendingExplodingKitten: Card | null;
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'gameEnd';

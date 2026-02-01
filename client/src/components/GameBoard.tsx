@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import { GameState, Card } from '../types/game';
 import CardComponent from './CardComponent';
@@ -26,6 +26,10 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
   const [canSkipDraw, setCanSkipDraw] = useState(false);
   const [drawnCard, setDrawnCard] = useState<Card | null>(null);
   const [showDrawnCard, setShowDrawnCard] = useState(false);
+  const [showCatComboSelection, setShowCatComboSelection] = useState(false);
+  const [catComboTargetCards, setCatComboTargetCards] = useState<Card[]>([]);
+  const [catComboTargetName, setCatComboTargetName] = useState<string>('');
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   const currentPlayer = gameState.players.find(p => p.id === yourPlayerId);
   const isYourTurn = gameState.currentTurnPlayerId === yourPlayerId;
@@ -33,7 +37,11 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
   const pendingFavor = gameState.pendingAction?.type === 'favor' && gameState.pendingAction.status === 'waiting'
     ? gameState.pendingAction
     : null;
+  const pendingCatCombo = gameState.pendingAction?.type === 'cat-combo' && gameState.pendingAction.status === 'waiting'
+    ? gameState.pendingAction
+    : null;
   const isFavorTarget = pendingFavor?.targetPlayerId === yourPlayerId;
+  const isCatComboRequester = pendingCatCombo?.initiatorId === yourPlayerId;
   const favorRequester = pendingFavor
     ? gameState.players.find(p => p.id === pendingFavor.initiatorId)
     : null;
@@ -50,6 +58,11 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
       socket.off('gameEnd');
     };
   }, [socket]);
+
+  // Auto-scroll game log to bottom
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [gameState.gameLog]);
 
   const handlePlayCard = (cardId: string, cardType: string) => {
     if (!isYourTurn || isEliminated) return;
@@ -136,6 +149,13 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
   };
 
   const handlePlayerSelection = (targetPlayerId: string) => {
+    // Check if it's for cat combo or favor
+    const catComboCards = (window as any).pendingCatComboCards;
+    if (catComboCards && catComboCards.length === 2) {
+      handleCatComboPlayerSelection(targetPlayerId);
+      return;
+    }
+
     if (!favorCardId) return;
 
     socket.emit('playCard', {
@@ -214,6 +234,55 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
     );
   };
 
+  const handlePlayCatCombo = (cardIds: string[]) => {
+    if (cardIds.length !== 2) return;
+    // Show player selection modal for cat combo
+    setFavorCardId(null); // Clear favor card id
+    setShowPlayerSelection(true);
+    // Store card IDs temporarily
+    (window as any).pendingCatComboCards = cardIds;
+  };
+
+  const handleCatComboPlayerSelection = (targetPlayerId: string) => {
+    const cardIds = (window as any).pendingCatComboCards;
+    if (!cardIds || cardIds.length !== 2) return;
+
+    socket.emit('playCard', {
+      cardId: cardIds,
+      targetPlayerId
+    }, (response: any) => {
+      if (response.success) {
+        setShowPlayerSelection(false);
+        (window as any).pendingCatComboCards = null;
+        // Fetch target player's cards (face down)
+        socket.emit('getCatComboTargetCards', (targetResponse: any) => {
+          if (targetResponse.success) {
+            setCatComboTargetCards(targetResponse.cards);
+            setCatComboTargetName(targetResponse.targetPlayerName);
+            setShowCatComboSelection(true);
+          } else {
+            alert('Failed to get target player cards');
+          }
+        });
+      } else {
+        alert(response.error || 'Failed to play cat combo');
+      }
+    });
+  };
+
+  const handleTakeCatComboCard = (cardId: string) => {
+    if (!pendingCatCombo) return;
+    socket.emit('takeCatComboCard', { cardId }, (response: any) => {
+      if (response.success) {
+        setShowCatComboSelection(false);
+        setCatComboTargetCards([]);
+        setCatComboTargetName('');
+      } else {
+        alert(response.error || 'Failed to take card');
+      }
+    });
+  };
+
   if (gameState.gamePhase === 'gameEnd') {
     const winner = gameState.players.find(p => !p.isEliminated);
     return (
@@ -241,11 +310,11 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
   const allPlayers = gameState.players;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-600 p-1.5 md:p-3">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-purple-600 to-blue-600 p-1.5 md:p-3">
       {/* Mobile-first layout */}
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto h-full flex flex-col">
         {/* Top section - Turn indicator (mobile and desktop) */}
-        <div className="mb-2 md:mb-3">
+        <div className="mb-2 md:mb-3 flex-shrink-0">
           {/* Turn indicator banner */}
           <div className={`
             rounded-lg shadow-lg p-2 md:p-2.5 text-center transition-all
@@ -278,12 +347,12 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
         </div>
 
         {/* Middle section - Players, Deck, Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3 mb-2 md:mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3 mb-2 md:mb-3 flex-1 min-h-0">
           {/* Players Display (left sidebar on desktop, hidden on mobile - shown at top) */}
-          <div className="hidden md:block">
-            <div className="bg-white rounded-lg shadow-lg p-4">
-              <h3 className="font-bold text-gray-800 mb-3 text-center">Players</h3>
-              <div className="space-y-3">
+          <div className="hidden md:block flex flex-col min-h-0">
+            <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col min-h-0">
+              <h3 className="font-bold text-gray-800 mb-3 text-center flex-shrink-0">Players</h3>
+              <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-1">
                 {allPlayers.map(player => {
                   const isCurrentTurn = player.id === gameState.currentTurnPlayerId;
                   const isYou = player.id === yourPlayerId;
@@ -292,7 +361,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
                     <div
                       key={player.id}
                       className={`
-                        flex items-center p-2 rounded-lg transition-all
+                        relative flex items-center p-2 rounded-lg transition-all
                         ${isCurrentTurn
                           ? 'bg-gradient-to-r from-yellow-400 to-orange-500 shadow-md'
                           : 'bg-gray-50 hover:bg-gray-100'
@@ -302,7 +371,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
                     >
                       {/* Turn indicator badge */}
                       {isCurrentTurn && (
-                        <div className="absolute -top-1 -right-1 bg-yellow-400 rounded-full p-1 animate-pulse">
+                        <div className="absolute -top-1 -right-1 bg-yellow-400 rounded-full p-1 animate-pulse z-10">
                           <span className="text-xs">🎯</span>
                         </div>
                       )}
@@ -363,7 +432,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
           </div>
 
           {/* Center - Deck Only */}
-          <div className="flex justify-center items-center">
+          <div className="flex justify-center items-center flex-shrink-0">
             {/* Draw Pile */}
             <div className="relative">
               <button
@@ -385,12 +454,15 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
           </div>
 
           {/* Right sidebar - Stats and Game Log (desktop) */}
-          <div className="hidden md:block space-y-4">
+          <div className="hidden md:block space-y-4 flex flex-col min-h-0 overflow-y-auto">
             {/* Room info */}
-            <div className="bg-white rounded-lg shadow-lg p-4">
-              <h3 className="font-bold text-gray-800 mb-2">Room: {gameState.roomCode}</h3>
+            <div className="bg-white rounded-lg shadow-lg p-4 flex-shrink-0">
+              <h3 className="font-bold text-gray-800 mb-2">
+                <span className="block">Room:</span>
+                <span className="block text-lg font-mono tracking-wider break-all">{gameState.roomCode}</span>
+              </h3>
               <div className="text-sm text-gray-600 space-y-1">
-                <p>Deck: {gameState.deckConfiguration}</p>
+                <p className="break-words">Deck: {gameState.deckConfiguration}</p>
                 <p>Players: {gameState.players.filter(p => !p.isEliminated).length}</p>
                 {currentPlayer && (
                   <div className="mt-3 pt-3 border-t">
@@ -403,9 +475,9 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
             </div>
 
             {/* Game Log - Small */}
-            <div className="bg-white rounded-lg shadow-lg p-3">
-              <h3 className="font-bold text-gray-800 mb-2 text-sm">Game Log</h3>
-              <div className="max-h-64 overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-lg p-3 flex flex-col flex-shrink-0" style={{ minHeight: '256px', maxHeight: '256px' }}>
+              <h3 className="font-bold text-gray-800 mb-2 text-sm flex-shrink-0">Game Log</h3>
+              <div className="overflow-y-auto flex-1 min-h-0">
                 <div className="space-y-1">
                   {gameState.gameLog.slice(-10).map((entry) => {
                     const getLogIcon = (type: string): string => {
@@ -435,6 +507,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
                       </div>
                     );
                   })}
+                  <div ref={logEndRef} />
                 </div>
               </div>
             </div>
@@ -442,7 +515,7 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
         </div>
 
         {/* Players Display - Mobile only (shown at top) */}
-        <div className="md:hidden mb-4">
+        <div className="md:hidden mb-2 flex-shrink-0">
           <div className="bg-white rounded-lg shadow-lg p-3">
             <h3 className="text-xs font-semibold text-gray-600 mb-3 text-center">
               Players
@@ -537,13 +610,16 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
         )}
 
         {/* Bottom section - Your Hand */}
-        {currentPlayer && !isEliminated && (
-          <PlayerHand
-            hand={currentPlayer.hand}
-            onPlayCard={handlePlayCard}
-            canPlay={isYourTurn}
-          />
-        )}
+        <div className="flex-shrink-0 overflow-hidden pb-36 md:pb-0">
+          {currentPlayer && !isEliminated && (
+            <PlayerHand
+              hand={currentPlayer.hand}
+              onPlayCard={handlePlayCard}
+              onPlayCatCombo={handlePlayCatCombo}
+              canPlay={isYourTurn}
+            />
+          )}
+        </div>
 
         {/* Eliminated overlay */}
         {isEliminated && (
@@ -619,10 +695,43 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
           onClose={() => {
             setShowPlayerSelection(false);
             setFavorCardId(null);
+            (window as any).pendingCatComboCards = null;
           }}
-          title="🤝 Play Favor"
-          message="Choose a player to take a card from"
+          title={(window as any).pendingCatComboCards ? "🐱 Play Cat Combo" : "🤝 Play Favor"}
+          message={(window as any).pendingCatComboCards ? "Choose a player to steal a random card from" : "Choose a player to take a card from"}
         />
+      )}
+
+      {/* Cat Combo Card Selection Modal - Requester picks from target's face-down cards */}
+      {showCatComboSelection && catComboTargetCards.length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full fade-in">
+            <h2 className="text-2xl md:text-3xl font-bold text-center mb-2">
+              🐱 Cat Combo!
+            </h2>
+            <p className="text-center text-gray-600 mb-6 text-sm md:text-base">
+              Choose a card to take from {catComboTargetName}'s hand (face down)
+            </p>
+
+            <div className="overflow-x-auto pb-2 mb-4">
+              <div className="flex space-x-2 md:space-x-3 min-w-max justify-center">
+                {catComboTargetCards.map((card) => (
+                  <div key={card.id} className="group relative">
+                    <CardComponent
+                      card={card}
+                      onClick={() => handleTakeCatComboCard(card.id)}
+                      selected={false}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-center text-xs text-gray-500">
+              Click on a card to take it
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Drawn Card Modal */}
@@ -652,10 +761,12 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
       )}
 
       {/* Mobile Game Log (swipeable drawer) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl max-h-32 overflow-hidden">
-        <div className="p-2">
-          <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-2"></div>
-          <GameLog gameLog={gameState.gameLog.slice(-3)} compact />
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl h-32 flex flex-col overflow-hidden">
+        <div className="p-2 flex-1 flex flex-col min-h-0">
+          <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-2 flex-shrink-0"></div>
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <GameLog gameLog={gameState.gameLog.slice(-3)} compact />
+          </div>
         </div>
       </div>
     </div>
