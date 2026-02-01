@@ -3,10 +3,10 @@ import { useState } from 'react';
 interface DefusePlacementProps {
   deckSize: number;
   onPlace: (position: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
-export default function DefusePlacement({ deckSize, onPlace, onClose }: DefusePlacementProps) {
+export default function DefusePlacement({ deckSize, onPlace }: DefusePlacementProps) {
   const [selectedPosition, setSelectedPosition] = useState<number>(0);
 
   // Create position options (0 to deckSize)

@@ -67,7 +67,6 @@ export default function WaitingRoom({ socket, gameState, yourPlayerId }: Waiting
 
   const getDeckInfo = () => {
     const config = gameState.deckConfiguration;
-    const playerCount = gameState.players.length;
 
     if (config === 'small') return `Small Deck (2-3 players)`;
     if (config === 'medium') return `Medium Deck (4-7 players)`;

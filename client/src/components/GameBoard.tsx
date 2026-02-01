@@ -42,7 +42,6 @@ export default function GameBoard({ socket, gameState, yourPlayerId }: GameBoard
     : null;
   const isFavorTarget = pendingFavor?.targetPlayerId === yourPlayerId;
   const isFavorRequester = pendingFavor?.initiatorId === yourPlayerId;
-  const isCatComboRequester = pendingCatCombo?.initiatorId === yourPlayerId;
   const favorRequester = pendingFavor
     ? gameState.players.find(p => p.id === pendingFavor.initiatorId)
     : null;
