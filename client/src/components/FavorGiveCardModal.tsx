@@ -1,6 +1,5 @@
 import { Card } from '../types/game';
 import CardComponent from './CardComponent';
-import { useState } from 'react';
 
 interface FavorGiveCardModalProps {
   hand: Card[];
@@ -15,16 +14,9 @@ export default function FavorGiveCardModal({
   onGive,
   isCatCombo = false,
 }: FavorGiveCardModalProps) {
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-
-  const handleGive = () => {
-    if (!selectedCardId) return;
-    onGive(selectedCardId);
-  };
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full fade-in">
+      <div className="bg-white rounded-3xl p-6 md:p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto fade-in">
         <h2 className="text-2xl md:text-3xl font-bold text-center mb-2">
           {isCatCombo ? '🐱 Cat Combo!' : '🤝 Favor Requested'}
         </h2>
@@ -38,27 +30,23 @@ export default function FavorGiveCardModal({
           <p className="text-center text-gray-500">You have no cards to give.</p>
         ) : (
           <>
-            <div className="overflow-x-auto pb-2 mb-4">
-              <div className="flex space-x-2 md:space-x-3 min-w-max">
+            <div className="overflow-y-auto pb-2 mb-4 max-h-[60vh]">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4 justify-items-center">
                 {hand.map((card) => (
                   <div key={card.id} className="group relative">
                     <CardComponent
                       card={card}
-                      onClick={() => setSelectedCardId(card.id)}
-                      selected={selectedCardId === card.id}
+                      onClick={() => onGive(card.id)}
+                      selected={false}
                     />
                   </div>
                 ))}
               </div>
             </div>
 
-            <button
-              onClick={handleGive}
-              disabled={!selectedCardId}
-              className="w-full bg-primary disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors"
-            >
-              Give Selected Card
-            </button>
+            <p className="text-center text-xs text-gray-500">
+              Click on a card to give it
+            </p>
           </>
         )}
       </div>

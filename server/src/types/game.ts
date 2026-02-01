@@ -70,6 +70,9 @@ export interface GameState {
   gameLog: GameLogEntry[]; // Action history
   deckConfiguration: 'small' | 'medium' | 'full';
   turnDirection: 'clockwise'; // Could add counter-clockwise for expansions
+  createdAt: number; // When room was created
+  lastActivityAt: number; // Last time any action occurred
+  endedAt?: number; // When game ended (if applicable)
 }
 
 export interface GameLogEntry {

@@ -75,4 +75,7 @@ export interface GameState {
   pendingAction: PendingAction | null;
   gameLog: GameLogEntry[];
   deckConfiguration: 'small' | 'medium' | 'full';
+  createdAt: number; // When room was created
+  lastActivityAt: number; // Last time any action occurred
+  endedAt?: number; // When game ended (if applicable)
 }

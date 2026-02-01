@@ -10,6 +10,9 @@ import {
 } from '../types/game';
 
 export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
+  // Store timeouts to clear them properly and prevent memory leaks
+  const disconnectTimeouts = new Map<string, NodeJS.Timeout>();
+
   /**
    * Helper function to check for game end and emit if needed
    */
@@ -24,7 +27,13 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
   };
 
   io.on('connection', (socket: Socket) => {
-    console.log(`Player connected: ${socket.id}`);
+
+    // Clear any existing timeout if player reconnects
+    const existingTimeout = disconnectTimeouts.get(socket.id);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      disconnectTimeouts.delete(socket.id);
+    }
 
     /**
      * Create a new game
@@ -46,7 +55,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true, data: response });
       } catch (error) {
-        console.error('Error creating game:', error);
         callback({ success: false, error: 'Failed to create game' });
       }
     });
@@ -83,7 +91,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true, data: response });
       } catch (error) {
-        console.error('Error joining game:', error);
         callback({ success: false, error: 'Failed to join game' });
       }
     });
@@ -119,7 +126,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true });
       } catch (error) {
-        console.error('Error starting game:', error);
         callback({ success: false, error: 'Failed to start game' });
       }
     });
@@ -165,7 +171,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true, requiresAction: result.requiresAction });
       } catch (error) {
-        console.error('Error playing card:', error);
         callback({ success: false, error: 'Failed to play card' });
       }
     });
@@ -207,7 +212,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true });
       } catch (error) {
-        console.error('Error giving favor card:', error);
         callback({ success: false, error: 'Failed to give card' });
       }
     });
@@ -241,7 +245,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true, cards: result.cards, targetPlayerName: result.targetPlayerName });
       } catch (error) {
-        console.error('Error getting cat combo target cards:', error);
         callback({ success: false, error: 'Failed to get target cards' });
       }
     });
@@ -283,7 +286,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true });
       } catch (error) {
-        console.error('Error taking cat combo card:', error);
         callback({ success: false, error: 'Failed to take card' });
       }
     });
@@ -347,7 +349,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
           exploded: result.exploded
         });
       } catch (error) {
-        console.error('Error drawing card:', error);
         callback({ success: false, error: 'Failed to draw card' });
       }
     });
@@ -394,7 +395,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true });
       } catch (error) {
-        console.error('Error defusing kitten:', error);
         callback({ success: false, error: 'Failed to defuse kitten' });
       }
     });
@@ -423,7 +423,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true, cards: topCards });
       } catch (error) {
-        console.error('Error seeing future:', error);
         callback({ success: false, error: 'Failed to see future' });
       }
     });
@@ -454,7 +453,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true });
       } catch (error) {
-        console.error('Error altering future:', error);
         callback({ success: false, error: 'Failed to alter future' });
       }
     });
@@ -488,7 +486,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
 
         callback({ success: true });
       } catch (error) {
-        console.error('Error shuffling deck:', error);
         callback({ success: false, error: 'Failed to shuffle deck' });
       }
     });
@@ -497,7 +494,6 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
      * Player disconnects
      */
     socket.on('disconnect', () => {
-      console.log(`Player disconnected: ${socket.id}`);
 
       // Find and handle disconnected player
       for (const room of roomManager.getAllRooms()) {
@@ -521,14 +517,17 @@ export function setupSocketHandlers(io: Server, roomManager: RoomManager) {
               checkAndEmitGameEnd(room, roomCode);
             }
           } else if (gamePhase === 'lobby') {
-            // If in lobby, remove player after 30 seconds
-            setTimeout(() => {
+            // If in lobby, remove player immediately (short delay to handle brief reconnections)
+            // Store timeout so we can clear it if player reconnects
+            const timeout = setTimeout(() => {
+              disconnectTimeouts.delete(socket.id);
               const stillInRoom = room.getPlayers().find(p => p.id === socket.id);
               if (stillInRoom && !stillInRoom.isConnected) {
                 room.removePlayer(socket.id);
                 io.to(roomCode).emit('gameState', { gameState: room.getGameState() });
               }
-            }, 30000);
+            }, 5000); // Reduced from 30 seconds to 5 seconds for lobby
+            disconnectTimeouts.set(socket.id, timeout);
           } else {
             // Game ended or other phase - just update connection status
             io.to(roomCode).emit('gameState', { gameState: room.getGameState() });

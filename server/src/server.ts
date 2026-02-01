@@ -32,8 +32,8 @@ setupSocketHandlers(io, roomManager);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     activeRooms: roomManager.getAllRooms().length,
     timestamp: new Date().toISOString(),
   });
@@ -46,7 +46,7 @@ app.get('/room/:roomCode', (req, res) => {
     res.status(404).json({ error: 'Room not found' });
     return;
   }
-  
+
   const gameState = room.getGameState();
   res.json({
     roomCode: gameState.roomCode,
@@ -58,11 +58,15 @@ app.get('/room/:roomCode', (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Exploding Kittens server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
+  // Server started - no logging
 });
 
-// Cleanup interval - remove empty rooms every 5 minutes
+// Cleanup interval - comprehensive cleanup every 5 minutes
 setInterval(() => {
-  roomManager.cleanupEmptyRooms();
+  roomManager.cleanup();
 }, 5 * 60 * 1000);
+
+// Also run cleanup for ended games more frequently (every minute)
+setInterval(() => {
+  roomManager.cleanupEndedGames(30);
+}, 1 * 60 * 1000);

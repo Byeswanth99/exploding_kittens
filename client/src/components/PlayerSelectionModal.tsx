@@ -9,10 +9,10 @@ interface PlayerSelectionModalProps {
   message: string;
 }
 
-export default function PlayerSelectionModal({ 
-  players, 
-  yourPlayerId, 
-  onSelect, 
+export default function PlayerSelectionModal({
+  players,
+  yourPlayerId,
+  onSelect,
   onClose,
   title,
   message

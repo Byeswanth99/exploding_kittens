@@ -24,7 +24,7 @@ export class RoomManager {
    */
   createRoom(hostId: string, hostName: string): GameRoom {
     let roomCode = this.generateRoomCode();
-    
+
     // Ensure unique room code
     while (this.rooms.has(roomCode)) {
       roomCode = this.generateRoomCode();
@@ -32,8 +32,7 @@ export class RoomManager {
 
     const room = new GameRoom(roomCode, hostId, hostName);
     this.rooms.set(roomCode, room);
-    
-    console.log(`Room created: ${roomCode} by ${hostName}`);
+
     return room;
   }
 
@@ -49,7 +48,6 @@ export class RoomManager {
    */
   removeRoom(roomCode: string): void {
     this.rooms.delete(roomCode);
-    console.log(`Room removed: ${roomCode}`);
   }
 
   /**
@@ -68,5 +66,61 @@ export class RoomManager {
         this.removeRoom(roomCode);
       }
     }
+  }
+
+  /**
+   * Clean up ended games (games that ended more than gracePeriodMinutes ago)
+   */
+  cleanupEndedGames(gracePeriodMinutes: number = 30): void {
+    const now = Date.now();
+    const gracePeriodMs = gracePeriodMinutes * 60 * 1000;
+
+    for (const [roomCode, room] of this.rooms.entries()) {
+      const gameState = room.getGameState();
+
+      if (gameState.gamePhase === 'gameEnd' && gameState.endedAt) {
+        const timeSinceEnd = now - gameState.endedAt;
+
+        // Remove if grace period passed OR no connected players
+        const hasConnectedPlayers = room.getPlayers().some(p => p.isConnected);
+
+        if (timeSinceEnd > gracePeriodMs || !hasConnectedPlayers) {
+          this.removeRoom(roomCode);
+        }
+      }
+    }
+  }
+
+  /**
+   * Clean up idle/abandoned games (no activity for maxIdleDays)
+   */
+  cleanupIdleGames(maxIdleDays: number = 3): void {
+    const now = Date.now();
+    const maxIdleMs = maxIdleDays * 24 * 60 * 60 * 1000;
+
+    for (const [roomCode, room] of this.rooms.entries()) {
+      const gameState = room.getGameState();
+      const timeSinceActivity = now - gameState.lastActivityAt;
+      const timeSinceCreation = now - gameState.createdAt;
+
+      // Remove if:
+      // 1. No activity for maxIdleDays, OR
+      // 2. Room created more than maxIdleDays ago and has no connected players
+      const hasConnectedPlayers = room.getPlayers().some(p => p.isConnected);
+
+      if (timeSinceActivity > maxIdleMs ||
+          (timeSinceCreation > maxIdleMs && !hasConnectedPlayers)) {
+        this.removeRoom(roomCode);
+      }
+    }
+  }
+
+  /**
+   * Comprehensive cleanup - runs all cleanup methods
+   */
+  cleanup(): void {
+    this.cleanupEmptyRooms();
+    this.cleanupEndedGames(30); // 30 minute grace period for ended games
+    this.cleanupIdleGames(3); // 3 days for idle games
   }
 }

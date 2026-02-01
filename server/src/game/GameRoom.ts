@@ -33,6 +33,7 @@ export class GameRoom {
       pendingExplodingKitten: null,
     };
 
+    const now = Date.now();
     this.gameState = {
       roomCode,
       players: [hostPlayer],
@@ -47,6 +48,8 @@ export class GameRoom {
       gameLog: [],
       deckConfiguration: 'medium',
       turnDirection: 'clockwise',
+      createdAt: now,
+      lastActivityAt: now,
     };
 
     this.addLogEntry('game-created', hostId, hostName, undefined, 'Game created');
@@ -98,6 +101,7 @@ export class GameRoom {
     };
 
     this.gameState.players.push(newPlayer);
+    this.updateLastActivity();
     this.addLogEntry('player-joined', playerId, playerName, undefined, `${playerName} joined the game`);
 
     return newPlayer;
@@ -111,6 +115,7 @@ export class GameRoom {
     if (!player) return;
 
     this.gameState.players = this.gameState.players.filter(p => p.id !== playerId);
+    this.updateLastActivity();
     this.addLogEntry('player-left', playerId, player.name, undefined, `${player.name} left the game`);
 
     // If host left, assign new host
@@ -132,6 +137,7 @@ export class GameRoom {
     player.isEliminated = true;
     player.isConnected = false;
 
+    this.updateLastActivity();
     this.addLogEntry('player-left', playerId, player.name, undefined,
       `${player.name} disconnected and was eliminated! 💥`);
 
@@ -170,10 +176,18 @@ export class GameRoom {
     this.gameState.currentTurnPlayerId = this.gameState.players[0].id;
     this.gameState.players[0].pendingTurns = 1;
 
+    this.updateLastActivity();
     this.addLogEntry('game-started', undefined, undefined, undefined,
       `Game started with ${playerCount} players! Deck: ${deckConfiguration} (${deck.length} cards)`);
     this.addLogEntry('turn-changed', this.gameState.players[0].id, this.gameState.players[0].name,
       undefined, `${this.gameState.players[0].name}'s turn`);
+  }
+
+  /**
+   * Update last activity timestamp
+   */
+  private updateLastActivity(): void {
+    this.gameState.lastActivityAt = Date.now();
   }
 
   /**
@@ -234,6 +248,7 @@ export class GameRoom {
 
     // If player still has pending turns, they continue
     if (currentPlayer.pendingTurns > 0) {
+      this.updateLastActivity();
       this.addLogEntry('turn-changed', currentPlayer.id, currentPlayer.name,
         undefined, `${currentPlayer.name}'s turn (${currentPlayer.pendingTurns} more turn(s))`);
       return;
@@ -244,6 +259,7 @@ export class GameRoom {
     if (nextPlayer) {
       this.gameState.currentTurnPlayerId = nextPlayer.id;
       nextPlayer.pendingTurns = 1;
+      this.updateLastActivity();
       this.addLogEntry('turn-changed', nextPlayer.id, nextPlayer.name,
         undefined, `${nextPlayer.name}'s turn`);
     }
@@ -256,6 +272,8 @@ export class GameRoom {
     const activePlayers = this.gameState.players.filter(p => !p.isEliminated);
     if (activePlayers.length === 1) {
       this.gameState.gamePhase = 'gameEnd';
+      this.gameState.endedAt = Date.now();
+      this.updateLastActivity();
       return activePlayers[0];
     }
     return null;
@@ -319,6 +337,7 @@ export class GameRoom {
     // Handle card effects
     const cardEffect = this.handleCardEffect(playerId, card.type, data);
 
+    this.updateLastActivity();
     this.addLogEntry('card-played', playerId, player.name, card.type,
       `${player.name} played ${card.type}`);
 
@@ -339,6 +358,7 @@ export class GameRoom {
         if (player.pendingTurns === 0) {
           this.endTurn();
         }
+        this.updateLastActivity();
         this.addLogEntry('card-played', playerId, player.name, cardType,
           `${player.name} skipped their turn`);
         return { success: true };
@@ -350,6 +370,7 @@ export class GameRoom {
         if (nextPlayer) {
           nextPlayer.pendingTurns += 2;
           this.gameState.currentTurnPlayerId = nextPlayer.id;
+          this.updateLastActivity();
           this.addLogEntry('turn-changed', nextPlayer.id, nextPlayer.name,
             undefined, `${nextPlayer.name}'s turn (${nextPlayer.pendingTurns} turns)`);
         }
@@ -440,6 +461,7 @@ export class GameRoom {
         // Player explodes - no defuse card available
         player.isEliminated = true;
         this.gameState.discardPile.push(card);
+        this.updateLastActivity();
         this.addLogEntry('player-exploded', playerId, player.name, undefined,
           `${player.name} exploded! 💥`);
 
@@ -452,6 +474,7 @@ export class GameRoom {
 
     // Regular card
     player.hand.push(card);
+    this.updateLastActivity();
     this.addLogEntry('card-drawn', playerId, player.name, undefined,
       `${player.name} drew a card`);
 
@@ -484,6 +507,7 @@ export class GameRoom {
     const position = Math.max(0, Math.min(insertPosition, this.gameState.deck.length));
     this.gameState.deck.splice(position, 0, explodingKitten);
 
+    this.updateLastActivity();
     this.addLogEntry('player-defused', playerId, player.name, undefined,
       `${player.name} defused an Exploding Kitten! 🛡️`);
 
@@ -495,6 +519,7 @@ export class GameRoom {
    */
   shuffleDeck(): void {
     this.gameState.deck = shuffleArray(this.gameState.deck);
+    this.updateLastActivity();
   }
 
   /**
@@ -514,6 +539,7 @@ export class GameRoom {
     this.gameState.deck = this.gameState.deck.slice(cards.length);
     // Add rearranged cards back at the bottom (beginning)
     this.gameState.deck.unshift(...cards);
+    this.updateLastActivity();
   }
 
   /**
@@ -547,6 +573,7 @@ export class GameRoom {
       receiver.defuseCount++;
     }
 
+    this.updateLastActivity();
     this.addLogEntry('card-played', receiverId, receiver.name, undefined,
       `${receiver.name} received a card from ${giver.name} (Favor)`);
 
@@ -718,6 +745,7 @@ export class GameRoom {
       requester.defuseCount++;
     }
 
+    this.updateLastActivity();
     this.addLogEntry('card-played', requesterId, requester.name, undefined,
       `${requester.name} stole a card from ${targetPlayer.name} (2 of a kind)`);
 
