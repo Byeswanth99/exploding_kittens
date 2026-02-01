@@ -13,7 +13,7 @@ export default function PlayerHand({ hand, onPlayCard, canPlay }: PlayerHandProp
 
   const handleCardClick = (card: Card) => {
     if (!canPlay) return;
-    
+
     // If clicking the same card, deselect
     if (selectedCardId === card.id) {
       setSelectedCardId(null);
@@ -25,7 +25,7 @@ export default function PlayerHand({ hand, onPlayCard, canPlay }: PlayerHandProp
 
   const handlePlaySelected = () => {
     if (!selectedCardId || !canPlay) return;
-    
+
     const card = hand.find(c => c.id === selectedCardId);
     if (!card) return;
 
@@ -42,16 +42,16 @@ export default function PlayerHand({ hand, onPlayCard, canPlay }: PlayerHandProp
   }
 
   return (
-    <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-2xl p-3 md:p-4">
+    <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-2xl p-2 md:p-3">
       {/* Header */}
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-white font-bold text-sm md:text-base">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-white font-bold text-xs md:text-sm">
           Your Hand ({hand.length} cards)
         </h3>
         {selectedCardId && canPlay && (
           <button
             onClick={handlePlaySelected}
-            className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg text-sm transform hover:scale-105 transition-all pulse"
+            className="bg-green-500 hover:bg-green-600 text-white font-bold py-1.5 px-3 rounded-lg text-xs transform hover:scale-105 transition-all pulse"
           >
             ▶ Play Card
           </button>
@@ -59,8 +59,8 @@ export default function PlayerHand({ hand, onPlayCard, canPlay }: PlayerHandProp
       </div>
 
       {/* Cards - Horizontal scrollable */}
-      <div className="overflow-x-auto pb-2">
-        <div className="flex space-x-2 md:space-x-3 min-w-max">
+      <div className="overflow-x-auto pb-1">
+        <div className="flex space-x-1.5 md:space-x-2 min-w-max">
           {hand.map((card) => (
             <div
               key={card.id}
@@ -79,12 +79,12 @@ export default function PlayerHand({ hand, onPlayCard, canPlay }: PlayerHandProp
 
       {/* Instructions */}
       {canPlay && !selectedCardId && (
-        <p className="text-white text-xs md:text-sm mt-2 text-center opacity-75">
+        <p className="text-white text-[10px] md:text-xs mt-1.5 text-center opacity-75">
           Tap a card to select, then tap "Play Card" or draw from deck
         </p>
       )}
       {!canPlay && (
-        <p className="text-white text-xs md:text-sm mt-2 text-center opacity-75">
+        <p className="text-white text-[10px] md:text-xs mt-1.5 text-center opacity-75">
           Wait for your turn
         </p>
       )}

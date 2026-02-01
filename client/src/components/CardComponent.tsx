@@ -9,18 +9,18 @@ interface CardComponentProps {
   small?: boolean;
 }
 
-export default function CardComponent({ 
-  card, 
-  onClick, 
+export default function CardComponent({
+  card,
+  onClick,
   disabled = false,
   selected = false,
   small = false
 }: CardComponentProps) {
   const style = getCardStyle(card.type);
-  
-  const sizeClasses = small 
-    ? 'w-16 h-24 text-xs' 
-    : 'w-20 h-32 md:w-24 md:h-36';
+
+  const sizeClasses = small
+    ? 'w-14 h-20 text-xs'
+    : 'w-16 h-24 md:w-20 md:h-28';
 
   return (
     <button
@@ -40,12 +40,12 @@ export default function CardComponent({
       `}
     >
       {/* Card emoji */}
-      <div className={`${small ? 'text-2xl' : 'text-3xl md:text-4xl'} mb-1`}>
+      <div className={`${small ? 'text-xl' : 'text-2xl md:text-3xl'} mb-1`}>
         {style.emoji}
       </div>
-      
+
       {/* Card name */}
-      <div className={`${small ? 'text-[8px]' : 'text-[10px] md:text-xs'} text-center px-1 leading-tight`}>
+      <div className={`${small ? 'text-[7px]' : 'text-[9px] md:text-[10px]'} text-center px-1 leading-tight`}>
         {style.name}
       </div>
 

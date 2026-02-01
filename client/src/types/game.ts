@@ -34,6 +34,25 @@ export interface Player {
 
 export type GamePhase = 'lobby' | 'playing' | 'gameEnd';
 
+export interface NopeEntry {
+  playerId: string;
+  playerName: string;
+  timestamp: number;
+}
+
+export interface PendingAction {
+  actionId: string;
+  type: 'favor' | 'cat-combo' | 'shuffle' | 'see-the-future' | 'alter-the-future' | 'attack' | 'skip';
+  initiatorId: string;
+  targetPlayerId?: string;
+  cardIds?: string[];
+  comboType?: '2-kind' | '3-kind' | '5-diff';
+  requestedCardType?: CardType;
+  nopeChain: NopeEntry[];
+  status: 'waiting' | 'resolved';
+  createdAt: number;
+}
+
 export interface GameLogEntry {
   id: string;
   timestamp: number;
@@ -52,6 +71,7 @@ export interface GameState {
   currentTurnPlayerId: string | null;
   gamePhase: GamePhase;
   hostId: string;
+  pendingAction: PendingAction | null;
   gameLog: GameLogEntry[];
   deckConfiguration: 'small' | 'medium' | 'full';
 }

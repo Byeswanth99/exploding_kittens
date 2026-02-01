@@ -1,7 +1,7 @@
-import { 
-  GameState, 
-  Player, 
-  Card, 
+import {
+  GameState,
+  Player,
+  Card,
   GameLogEntry,
   PendingAction,
   CardViewRequest,
@@ -138,14 +138,14 @@ export class GameRoom {
     this.gameState.deck = deck;
     this.gameState.deckConfiguration = deckConfiguration;
     this.gameState.gamePhase = 'playing';
-    
+
     // Set first player's turn
     this.gameState.currentTurnPlayerId = this.gameState.players[0].id;
     this.gameState.players[0].pendingTurns = 1;
 
-    this.addLogEntry('game-started', undefined, undefined, undefined, 
+    this.addLogEntry('game-started', undefined, undefined, undefined,
       `Game started with ${playerCount} players! Deck: ${deckConfiguration} (${deck.length} cards)`);
-    this.addLogEntry('turn-changed', this.gameState.players[0].id, this.gameState.players[0].name, 
+    this.addLogEntry('turn-changed', this.gameState.players[0].id, this.gameState.players[0].name,
       undefined, `${this.gameState.players[0].name}'s turn`);
   }
 
@@ -173,7 +173,7 @@ export class GameRoom {
       message: message || '',
     };
     this.gameState.gameLog.push(entry);
-    
+
     // Keep only last 50 entries
     if (this.gameState.gameLog.length > 50) {
       this.gameState.gameLog = this.gameState.gameLog.slice(-50);
@@ -186,9 +186,9 @@ export class GameRoom {
   private getNextPlayer(currentPlayerId: string): Player | null {
     const activePlayers = this.gameState.players.filter(p => !p.isEliminated);
     const currentIndex = activePlayers.findIndex(p => p.id === currentPlayerId);
-    
+
     if (currentIndex === -1) return null;
-    
+
     const nextIndex = (currentIndex + 1) % activePlayers.length;
     return activePlayers[nextIndex];
   }
@@ -207,7 +207,7 @@ export class GameRoom {
 
     // If player still has pending turns, they continue
     if (currentPlayer.pendingTurns > 0) {
-      this.addLogEntry('turn-changed', currentPlayer.id, currentPlayer.name, 
+      this.addLogEntry('turn-changed', currentPlayer.id, currentPlayer.name,
         undefined, `${currentPlayer.name}'s turn (${currentPlayer.pendingTurns} more turn(s))`);
       return;
     }
@@ -217,7 +217,7 @@ export class GameRoom {
     if (nextPlayer) {
       this.gameState.currentTurnPlayerId = nextPlayer.id;
       nextPlayer.pendingTurns = 1;
-      this.addLogEntry('turn-changed', nextPlayer.id, nextPlayer.name, 
+      this.addLogEntry('turn-changed', nextPlayer.id, nextPlayer.name,
         undefined, `${nextPlayer.name}'s turn`);
     }
   }
@@ -250,22 +250,37 @@ export class GameRoom {
     if (cardIndex === -1) return { success: false, error: 'Card not in hand' };
 
     const card = player.hand[cardIndex];
-    
+
+    if (card.type === 'favor') {
+      if (!data?.targetPlayerId) {
+        return { success: false, error: 'Target player required' };
+      }
+
+      const targetPlayer = this.gameState.players.find(p => p.id === data.targetPlayerId);
+      if (!targetPlayer || targetPlayer.isEliminated) {
+        return { success: false, error: 'Invalid target player' };
+      }
+
+      if (this.gameState.pendingAction?.status === 'waiting') {
+        return { success: false, error: 'Another action is pending' };
+      }
+    }
+
     // Remove card from hand
     player.hand.splice(cardIndex, 1);
-    
+
     // Update defuse count
     if (card.type === 'defuse') {
       player.defuseCount--;
     }
-    
+
     // Add to discard pile
     this.gameState.discardPile.push(card);
-    
+
     // Handle card effects
     const cardEffect = this.handleCardEffect(playerId, card.type, data);
-    
-    this.addLogEntry('card-played', playerId, player.name, card.type, 
+
+    this.addLogEntry('card-played', playerId, player.name, card.type,
       `${player.name} played ${card.type}`);
 
     return cardEffect;
@@ -285,7 +300,7 @@ export class GameRoom {
         if (player.pendingTurns === 0) {
           this.endTurn();
         }
-        this.addLogEntry('card-played', playerId, player.name, cardType, 
+        this.addLogEntry('card-played', playerId, player.name, cardType,
           `${player.name} skipped their turn`);
         return { success: true };
 
@@ -296,7 +311,7 @@ export class GameRoom {
         if (nextPlayer) {
           nextPlayer.pendingTurns += 2;
           this.gameState.currentTurnPlayerId = nextPlayer.id;
-          this.addLogEntry('turn-changed', nextPlayer.id, nextPlayer.name, 
+          this.addLogEntry('turn-changed', nextPlayer.id, nextPlayer.name,
             undefined, `${nextPlayer.name}'s turn (${nextPlayer.pendingTurns} turns)`);
         }
         return { success: true };
@@ -306,6 +321,35 @@ export class GameRoom {
         if (!data?.targetPlayerId) {
           return { success: false, error: 'Target player required' };
         }
+
+        const targetPlayer = this.gameState.players.find(p => p.id === data.targetPlayerId);
+        if (!targetPlayer || targetPlayer.isEliminated) {
+          return { success: false, error: 'Invalid target player' };
+        }
+
+        if (targetPlayer.hand.length === 0) {
+          this.addLogEntry(
+            'action-resolved',
+            playerId,
+            player.name,
+            cardType,
+            `${targetPlayer.name} has no cards to give (Favor)`,
+            targetPlayer.id,
+            targetPlayer.name
+          );
+          return { success: true };
+        }
+
+        this.gameState.pendingAction = {
+          actionId: uuidv4(),
+          type: 'favor',
+          initiatorId: playerId,
+          targetPlayerId: targetPlayer.id,
+          nopeChain: [],
+          status: 'waiting',
+          createdAt: Date.now(),
+        };
+
         return { success: true, requiresAction: 'favor' };
 
       case 'shuffle':
@@ -346,19 +390,19 @@ export class GameRoom {
         // Player explodes
         player.isEliminated = true;
         this.gameState.discardPile.push(card);
-        this.addLogEntry('player-exploded', playerId, player.name, undefined, 
+        this.addLogEntry('player-exploded', playerId, player.name, undefined,
           `${player.name} exploded! 💥`);
-        
+
         // End turn and move to next player
         this.endTurn();
-        
+
         return { card, exploded: true };
       }
     }
 
     // Regular card
     player.hand.push(card);
-    this.addLogEntry('card-drawn', playerId, player.name, undefined, 
+    this.addLogEntry('card-drawn', playerId, player.name, undefined,
       `${player.name} drew a card`);
 
     return { card, exploded: false };
@@ -384,11 +428,11 @@ export class GameRoom {
       id: uuidv4(),
       type: 'exploding-kitten',
     };
-    
+
     const position = Math.max(0, Math.min(insertPosition, this.gameState.deck.length));
     this.gameState.deck.splice(position, 0, explodingKitten);
 
-    this.addLogEntry('player-defused', playerId, player.name, undefined, 
+    this.addLogEntry('player-defused', playerId, player.name, undefined,
       `${player.name} defused an Exploding Kitten! 🛡️`);
 
     return true;
@@ -424,8 +468,18 @@ export class GameRoom {
   giveFavorCard(giverId: string, receiverId: string, cardId: string): boolean {
     const giver = this.gameState.players.find(p => p.id === giverId);
     const receiver = this.gameState.players.find(p => p.id === receiverId);
-    
+
     if (!giver || !receiver) return false;
+
+    if (
+      !this.gameState.pendingAction ||
+      this.gameState.pendingAction.type !== 'favor' ||
+      this.gameState.pendingAction.status !== 'waiting' ||
+      this.gameState.pendingAction.initiatorId !== receiverId ||
+      this.gameState.pendingAction.targetPlayerId !== giverId
+    ) {
+      return false;
+    }
 
     const cardIndex = giver.hand.findIndex(c => c.id === cardId);
     if (cardIndex === -1) return false;
@@ -441,6 +495,8 @@ export class GameRoom {
 
     this.addLogEntry('card-played', receiverId, receiver.name, undefined,
       `${receiver.name} received a card from ${giver.name} (Favor)`);
+
+    this.gameState.pendingAction = null;
 
     return true;
   }
